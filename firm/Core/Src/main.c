@@ -46,11 +46,10 @@ OSPI_HandleTypeDef hospi1;
 MDMA_HandleTypeDef hmdma_octospi1_fifo_th;
 
 /* USER CODE BEGIN PV */
-char* buffer = "Hello World!\n\r";
-//uint8_t aTxBuffer[] = " **OCTOSPI/Octal-spi PSRAM Memory-mapped communication example** **OCTOSPI/Octal-spi PSRAM Memory-mapped communication example** **OCTOSPI/Octal-spi PSRAM Memory-mapped communication example** **OCTOSPI/Octal-spi PSRAM Memory-mapped communication example*!";
-//uint8_t aTxBuffer[] = " **OCTOSPI/Octal-spi PSRAM Memory-mapped communication example** **OCTOSPI/Octal-spi PSRAM Memory-mapped communication example**";
 uint8_t aTxBuffer[BUFFERSIZE]  __attribute__((section(".DATA_RAM_SRD")));
-uint8_t aRxBuffer[BUFFERSIZE]  __attribute__((section(".DATA_RAM_SRD")));
+uint8_t aRxBuffer[2][BUFFERSIZE]  __attribute__((section(".DATA_RAM_SRD")));
+uint32_t aRxLen[2];
+uint32_t aRxPtr;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -121,20 +120,19 @@ int main(void)
   sCommand.Address = 0x00012345;
   sCommand.AlternateBytesMode = HAL_OSPI_ALTERNATE_BYTES_NONE;
   sCommand.DataMode = HAL_OSPI_DATA_8_LINES;
-  sCommand.NbData = BUFFERSIZE;
   sCommand.SIOOMode = HAL_OSPI_SIOO_INST_EVERY_CMD;
   sCommand.InstructionDtrMode = HAL_OSPI_INSTRUCTION_DTR_DISABLE;
   sCommand.AddressDtrMode = HAL_OSPI_ADDRESS_DTR_DISABLE;
   sCommand.DataDtrMode = HAL_OSPI_DATA_DTR_DISABLE;
   sCommand.DQSMode = HAL_OSPI_DQS_DISABLE;
 
-  sprintf(str,"hello world!\n\r");
-  CDC_Transmit_HS((uint8_t *)str, strlen(str));
+  aRxLen[0] = 0;
+  aRxLen[1] = 0;
+  aRxPtr = 0;
 
   while (1)
-  //{CDC_Transmit_HS((uint8_t *)str, strlen(str));HAL_Delay(1000);}
   {
-
+/*
 	  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_3);
       //CDC_Transmit_HS((uint8_t *)buffer, strlen(buffer));
 
@@ -200,6 +198,52 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  //HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_3);
+      //HAL_Delay(1000);
+
+      HAL_Delay(1);
+	  if(aRxLen[(aRxPtr+1)%2] > 0){
+		  sCommand.Instruction = LINEAR_BURST_WRITE*0x100 + aRxLen[(aRxPtr+1)%2]-1;
+		  sCommand.DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
+		  sCommand.NbData = aRxLen[(aRxPtr+1)%2];
+
+		  SCB_CleanDCache_by_Addr((uint32_t*)(uint32_t*)aRxBuffer[(aRxPtr+1)%2], aRxLen[(aRxPtr+1)%2]);
+
+		  if (HAL_OSPI_Command(&hospi1, &sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
+	      {
+	    	  Error_Handler();
+	      }
+
+	      if (HAL_OSPI_Transmit_DMA(&hospi1, aRxBuffer[(aRxPtr+1)%2])!= HAL_OK)
+	      {
+	    	  Error_Handler();
+	      }
+
+	      while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
+
+
+		  sCommand.Instruction = LINEAR_BURST_READ*0x100 + aRxLen[(aRxPtr+1)%2]-1;
+		  sCommand.DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
+		  sCommand.NbData = aRxLen[(aRxPtr+1)%2];
+
+	      SCB_InvalidateDCache_by_Addr((uint32_t*)aTxBuffer, aRxLen[(aRxPtr+1)%2]);
+
+	      if (HAL_OSPI_Command(&hospi1, &sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
+	      {
+	    	  Error_Handler();
+	      }
+
+	      if (HAL_OSPI_Receive_DMA(&hospi1, aTxBuffer)!= HAL_OK)
+	      {
+	    	  Error_Handler();
+	      }
+
+	      while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
+
+		  CDC_Transmit_HS((uint8_t *)aTxBuffer, aRxLen[(aRxPtr+1)%2]);
+		  aRxLen[(aRxPtr+1)%2] = 0;
+
+	  }
   }
   /* USER CODE END 3 */
 }
