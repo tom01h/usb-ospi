@@ -195,6 +195,7 @@ int main(void)
       CDC_Transmit_HS((uint8_t *)str, strlen(str));
 
       //HAL_Delay(1000);
+*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -203,6 +204,7 @@ int main(void)
 
       HAL_Delay(1);
 	  if(aRxLen[(aRxPtr+1)%2] > 0){
+		  /**/
 		  sCommand.Instruction = LINEAR_BURST_WRITE*0x100 + aRxLen[(aRxPtr+1)%2]-1;
 		  sCommand.DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
 		  sCommand.NbData = aRxLen[(aRxPtr+1)%2];
@@ -241,6 +243,9 @@ int main(void)
 	      while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
 
 		  CDC_Transmit_HS((uint8_t *)aTxBuffer, aRxLen[(aRxPtr+1)%2]);
+		  /**/
+		  //CDC_Transmit_HS((uint8_t *)aRxBuffer[(aRxPtr+1)%2], aRxLen[(aRxPtr+1)%2]);
+
 		  aRxLen[(aRxPtr+1)%2] = 0;
 
 	  }
