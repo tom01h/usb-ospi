@@ -9,8 +9,8 @@
 #include <stdlib.h>
 
 #define SERIAL_PORT "/dev/ttyACM0"
-//#define BUFFERSIZE 256
-#define BUFFERSIZE 64
+#define BUFFERSIZE 256
+//#define BUFFERSIZE 64
 
 int main(){
     int fd;                            // ファイルディスクリプタ
