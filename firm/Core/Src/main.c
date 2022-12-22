@@ -18,12 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "usbd_cdc_if.h"
-#include <string.h>
+#include "tusb.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,11 +44,11 @@
 OSPI_HandleTypeDef hospi1;
 MDMA_HandleTypeDef hmdma_octospi1_fifo_th;
 
+PCD_HandleTypeDef hpcd_USB_OTG_HS;
+
 /* USER CODE BEGIN PV */
-uint8_t aTxBuffer[BUFFERSIZE]  __attribute__((section(".DATA_RAM_SRD")));
-uint8_t aRxBuffer[2][BUFFERSIZE]  __attribute__((section(".DATA_RAM_SRD")));
-uint32_t aRxLen[2];
-uint32_t aRxPtr;
+buffer_info buffer_info_axm;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -57,13 +56,77 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_MDMA_Init(void);
 static void MX_OCTOSPI1_Init(void);
+static void MX_USB_OTG_HS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
+{
+	if ((buffer_info_axm.busy == false)) {
+		uint count = 0;
+		if (tud_vendor_available()) {
+			count = tud_vendor_read(buffer_info_axm.buffer, 512);
+		}else{
+			tud_task();
+		}
+		if (count != 0) {
+			buffer_info_axm.count = count;
+			buffer_info_axm.busy = true;
 
+			SCB_CleanDCache_by_Addr((uint32_t*)(uint32_t*)buffer_info_axm.buffer, count);
+
+			sCommand->Instruction = LINEAR_BURST_WRITE*0x100 + count-1;
+			sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
+			sCommand->NbData = count;
+			sCommand->Address = 0x00000000;
+
+			if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
+			{
+				Error_Handler();
+			}
+
+			if (HAL_OSPI_Transmit_DMA(&hospi1, buffer_info_axm.buffer)!= HAL_OK)
+			{
+				Error_Handler();
+			}
+
+			while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
+		}
+	}
+}
+
+void pmod_task(OSPI_RegularCmdTypeDef *sCommand)
+{
+	if (buffer_info_axm.busy == true){
+		sCommand->Instruction = LINEAR_BURST_READ*0x100 + buffer_info_axm.count-1;
+		sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
+		sCommand->NbData = buffer_info_axm.count;
+		sCommand->Address = 0x00000000;
+
+		SCB_InvalidateDCache_by_Addr((uint32_t*)buffer_info_axm.buffer, buffer_info_axm.count);
+
+		if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
+		{
+		  Error_Handler();
+		}
+
+		if (HAL_OSPI_Receive_DMA(&hospi1, buffer_info_axm.buffer)!= HAL_OK)
+		{
+		  Error_Handler();
+		}
+
+		while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
+
+		while(tud_vendor_write(buffer_info_axm.buffer, buffer_info_axm.count) == 0) tud_task();
+		tud_vendor_flush();
+
+
+		buffer_info_axm.busy = false;
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -73,7 +136,7 @@ static void MX_OCTOSPI1_Init(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	char str[256];
+
   /* USER CODE END 1 */
 
   /* Enable I-Cache---------------------------------------------------------*/
@@ -102,13 +165,14 @@ int main(void)
   MX_GPIO_Init();
   MX_MDMA_Init();
   MX_OCTOSPI1_Init();
-  MX_USB_DEVICE_Init();
+  MX_USB_OTG_HS_PCD_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  tusb_init();
 
   OSPI_RegularCmdTypeDef sCommand;
   sCommand.OperationType = HAL_OSPI_OPTYPE_COMMON_CFG;
@@ -117,7 +181,6 @@ int main(void)
   sCommand.InstructionSize = HAL_OSPI_INSTRUCTION_16_BITS;
   sCommand.AddressMode = HAL_OSPI_ADDRESS_8_LINES;
   sCommand.AddressSize = HAL_OSPI_ADDRESS_24_BITS;
-  sCommand.Address = 0x00012345;
   sCommand.AlternateBytesMode = HAL_OSPI_ALTERNATE_BYTES_NONE;
   sCommand.DataMode = HAL_OSPI_DATA_8_LINES;
   sCommand.SIOOMode = HAL_OSPI_SIOO_INST_EVERY_CMD;
@@ -126,129 +189,15 @@ int main(void)
   sCommand.DataDtrMode = HAL_OSPI_DATA_DTR_DISABLE;
   sCommand.DQSMode = HAL_OSPI_DQS_DISABLE;
 
-  aRxLen[0] = 0;
-  aRxLen[1] = 0;
-  aRxPtr = 0;
-
   while (1)
   {
-/*
-	  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_3);
-      //CDC_Transmit_HS((uint8_t *)buffer, strlen(buffer));
-
-	  sCommand.Instruction = LINEAR_BURST_WRITE*0x100 + BUFFERSIZE-1;
-	  sCommand.DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
-
-	  //memcpy(aRamBuffer, aTxBuffer, BUFFERSIZE);
-	  for(int i = 0; i < BUFFERSIZE; i++){
-		  //aRamBuffer[i] = i;
-		  aTxBuffer[i] = rand();
-	  }
-	  SCB_CleanDCache_by_Addr((uint32_t*)aTxBuffer, BUFFERSIZE);
-
-	  if (HAL_OSPI_Command(&hospi1, &sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-      {
-    	  Error_Handler();
-      }
-
-      //if (HAL_OSPI_Transmit(&hospi1, aRamBuffer, HAL_OSPI_TIMEOUT_DEFAULT_VALUE)!= HAL_OK)
-      if (HAL_OSPI_Transmit_DMA(&hospi1, aTxBuffer)!= HAL_OK)
-      {
-    	  Error_Handler();
-      }
-
-      while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
-
-	  sCommand.Instruction = LINEAR_BURST_READ*0x100 + BUFFERSIZE-1;
-	  sCommand.DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
-
-      SCB_InvalidateDCache_by_Addr((uint32_t*)aRxBuffer, BUFFERSIZE);
-
-      if (HAL_OSPI_Command(&hospi1, &sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-      {
-    	  Error_Handler();
-      }
-
-      if (HAL_OSPI_Receive_DMA(&hospi1, aRxBuffer)!= HAL_OK)
-      {
-    	  Error_Handler();
-      }
-
-      while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
-
-      for(int i = 0; i < BUFFERSIZE/16; i++){
-    	  for(int j = 0; j < 16; j++){
-    		  if(aTxBuffer[i*16+j] != aRxBuffer[i*16+j]){
-        	      sprintf(str,"Error %i, %02x, %02x", i*16+j, aTxBuffer[i*16+j], aRxBuffer[i*16+j]);
-        	      CDC_Transmit_HS((uint8_t *)str, strlen(str));
-        	      HAL_Delay(1);
-    		  }
-    	      sprintf(str,"%02x ",aTxBuffer[i*16+j]);
-    	      CDC_Transmit_HS((uint8_t *)str, strlen(str));
-    	      HAL_Delay(1);
-    	  }
-	      sprintf(str,"\n\r");
-	      CDC_Transmit_HS((uint8_t *)str, strlen(str));
-	      HAL_Delay(1);
-      }
-      sprintf(str,"\n\r");
-      CDC_Transmit_HS((uint8_t *)str, strlen(str));
-
-      //HAL_Delay(1000);
-*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  //HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_3);
-      //HAL_Delay(1000);
-
-      HAL_Delay(1);
-	  if(aRxLen[(aRxPtr+1)%2] > 0){
-		  /**/
-		  sCommand.Instruction = LINEAR_BURST_WRITE*0x100 + aRxLen[(aRxPtr+1)%2]-1;
-		  sCommand.DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
-		  sCommand.NbData = aRxLen[(aRxPtr+1)%2];
-
-		  SCB_CleanDCache_by_Addr((uint32_t*)(uint32_t*)aRxBuffer[(aRxPtr+1)%2], aRxLen[(aRxPtr+1)%2]);
-
-		  if (HAL_OSPI_Command(&hospi1, &sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-	      {
-	    	  Error_Handler();
-	      }
-
-	      if (HAL_OSPI_Transmit_DMA(&hospi1, aRxBuffer[(aRxPtr+1)%2])!= HAL_OK)
-	      {
-	    	  Error_Handler();
-	      }
-
-	      while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
-
-
-		  sCommand.Instruction = LINEAR_BURST_READ*0x100 + aRxLen[(aRxPtr+1)%2]-1;
-		  sCommand.DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
-		  sCommand.NbData = aRxLen[(aRxPtr+1)%2];
-
-	      SCB_InvalidateDCache_by_Addr((uint32_t*)aTxBuffer, aRxLen[(aRxPtr+1)%2]);
-
-	      if (HAL_OSPI_Command(&hospi1, &sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-	      {
-	    	  Error_Handler();
-	      }
-
-	      if (HAL_OSPI_Receive_DMA(&hospi1, aTxBuffer)!= HAL_OK)
-	      {
-	    	  Error_Handler();
-	      }
-
-	      while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
-
-		  CDC_Transmit_HS((uint8_t *)aTxBuffer, aRxLen[(aRxPtr+1)%2]);
-		  /**/
-		  //CDC_Transmit_HS((uint8_t *)aRxBuffer[(aRxPtr+1)%2], aRxLen[(aRxPtr+1)%2]);
-
-		  aRxLen[(aRxPtr+1)%2] = 0;
-
-	  }
+      //HAL_Delay(1);
+	  tud_task();
+	  from_host_task(&sCommand);
+	  pmod_task(&sCommand);
   }
   /* USER CODE END 3 */
 }
@@ -333,7 +282,6 @@ static void MX_OCTOSPI1_Init(void)
   OSPIM_CfgTypeDef sOspiManagerCfg = {0};
 
   /* USER CODE BEGIN OCTOSPI1_Init 1 */
-  //sOspiManagerCfg.WriteZeroLatency = HAL_OSPI_NO_LATENCY_ON_WRITE;
 
   /* USER CODE END OCTOSPI1_Init 1 */
   /* OCTOSPI1 parameter configuration*/
@@ -373,6 +321,42 @@ static void MX_OCTOSPI1_Init(void)
 }
 
 /**
+  * @brief USB_OTG_HS Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USB_OTG_HS_PCD_Init(void)
+{
+
+  /* USER CODE BEGIN USB_OTG_HS_Init 0 */
+
+  /* USER CODE END USB_OTG_HS_Init 0 */
+
+  /* USER CODE BEGIN USB_OTG_HS_Init 1 */
+
+  /* USER CODE END USB_OTG_HS_Init 1 */
+  hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
+  hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
+  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_HIGH;
+  hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_ULPI_PHY;
+  hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
+  hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = DISABLE;
+  hpcd_USB_OTG_HS.Init.use_external_vbus = DISABLE;
+  if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USB_OTG_HS_Init 2 */
+
+  /* USER CODE END USB_OTG_HS_Init 2 */
+
+}
+
+/**
   * Enable MDMA controller clock
   */
 static void MX_MDMA_Init(void)
@@ -396,25 +380,14 @@ static void MX_MDMA_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : PE3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
 }
 

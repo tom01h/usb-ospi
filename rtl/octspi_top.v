@@ -45,7 +45,7 @@ assign reset = ~reset_n;
 
 localparam CMD_LEN = 5;
 localparam DMY_LEN = 2;
-localparam DATA_LEN = 256;
+localparam DATA_LEN = 512*512;
 
 localparam COMMAND_WRITE = 'hA0;
 localparam COMMAND_READ = 'h20;
@@ -70,6 +70,7 @@ always @(posedge clk) begin
     //end else if((data_cnt != size+1) && (cmd == COMMAND_READ) || (data_cnt != size) && (cmd == COMMAND_WRITE)) begin
     end else if((data_cnt != size) && (cmd == COMMAND_READ) || (data_cnt != size) && (cmd == COMMAND_WRITE)) begin
         data_cnt <= data_cnt + 1;
+        address <= address + 1;
     end else begin
         cmd_cnt <= 0;
         dmy_cnt <= 0;
@@ -90,11 +91,6 @@ assign dqs_t = ~(read || dummy || hold_state);
 assign dqs_o = ~clk;
 assign data_t = ~(read || hold_state);
 
-always @(posedge clk) begin
-    //data_o <= data_cnt;
-    //data_o <= {data_cnt[0],data_cnt[1],data_cnt[2],data_cnt[3],data_cnt[4],data_cnt[5],data_cnt[6],data_cnt[7]};
-end
-
 always @(posedge clk or posedge ncs) begin
     if(ncs) begin
         hold_state <= 1'b0;
@@ -107,9 +103,9 @@ reg [7:0] ram [0:DATA_LEN-1];
 
 always @(posedge clk) begin
     if(write) begin
-        ram[data_cnt] <= data_i;
+        ram[address] <= data_i;
     end
-    data_o <= ram[data_cnt];
+    data_o <= ram[address];
 end
     
 always @(posedge clk) begin

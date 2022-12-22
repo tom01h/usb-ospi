@@ -57,12 +57,22 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+
 /* USER CODE BEGIN Private defines */
 #define LINEAR_BURST_READ 0x20
 #define LINEAR_BURST_WRITE 0xA0
 #define DUMMY_CLOCK_CYCLES_SRAM_READ 2
 #define DUMMY_CLOCK_CYCLES_SRAM_WRITE 0
+
 #define BUFFERSIZE 256
+typedef uint8_t cmd_buffer[BUFFERSIZE];
+typedef struct buffer_info
+{
+  volatile uint32_t count;
+  volatile uint8_t busy;
+  cmd_buffer buffer;
+} buffer_info;
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
