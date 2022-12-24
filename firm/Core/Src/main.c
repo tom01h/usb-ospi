@@ -63,9 +63,11 @@ static void MX_USB_OTG_HS_PCD_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+cmd_buffer buffer;/////////////
 void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 {
 	if ((buffer_info_axm.busy == false)) {
+		buffer_info_axm.busy = true;
 		uint count = 0;
 		if (tud_vendor_available()) {
 			count = tud_vendor_read(buffer_info_axm.buffer, 512);
@@ -73,58 +75,69 @@ void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 			tud_task();
 		}
 		if (count != 0) {
-			buffer_info_axm.count = count;
-			buffer_info_axm.busy = true;
+			sCommand->Instruction = *(uint32_t *)&buffer_info_axm.buffer[0];
+			buffer_info_axm.count = (sCommand->Instruction & 0x00ffffff)+1;
 
-			SCB_CleanDCache_by_Addr((uint32_t*)(uint32_t*)buffer_info_axm.buffer, count);
+			sCommand->Address     = *(uint32_t *)&buffer_info_axm.buffer[4];
 
-			sCommand->Instruction = LINEAR_BURST_WRITE*0x100 + count-1;
-			sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
-			sCommand->NbData = count;
-			sCommand->Address = 0x00000000;
+			if((buffer_info_axm.buffer[3]&0xf0)==(LINEAR_BURST_WRITE<<4)) {
+				sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
+				sCommand->NbData      = buffer_info_axm.count;
 
-			if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-			{
-				Error_Handler();
+				SCB_CleanDCache_by_Addr((uint32_t*)buffer_info_axm.buffer, count);
+
+				if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
+				{
+					Error_Handler();
+				}
+
+				if (HAL_OSPI_Transmit_DMA(&hospi1, &buffer_info_axm.buffer[8])!= HAL_OK)
+				{
+					Error_Handler();
+				}
+
+				while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
+			} else { // LINEAR_BURST_READ
+				sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
+				sCommand->NbData      = buffer_info_axm.count;
+
+				//sCommand->Instruction = ((LINEAR_BURST_READ*0x10 + 2)<<24) + buffer_info_axm.count-1;
+
+				SCB_InvalidateDCache_by_Addr((uint32_t*)/*buffer_info_axm.*/buffer, buffer_info_axm.count);
+
+				if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
+				{
+					Error_Handler();
+				}
+
+				if (HAL_OSPI_Receive_DMA(&hospi1, /*buffer_info_axm.*/buffer)!= HAL_OK)
+				{
+					Error_Handler();
+				}
+
+				while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
+				while(tud_vendor_write(/*buffer_info_axm.*/buffer, buffer_info_axm.count) == 0){tud_task();}
+				tud_vendor_flush();
 			}
-
-			if (HAL_OSPI_Transmit_DMA(&hospi1, buffer_info_axm.buffer)!= HAL_OK)
-			{
-				Error_Handler();
-			}
-
-			while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
 		}
+		buffer_info_axm.busy = false;
 	}
 }
 
 void pmod_task(OSPI_RegularCmdTypeDef *sCommand)
 {
 	if (buffer_info_axm.busy == true){
-		sCommand->Instruction = LINEAR_BURST_READ*0x100 + buffer_info_axm.count-1;
-		sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
-		sCommand->NbData = buffer_info_axm.count;
-		sCommand->Address = 0x00000000;
+		//sCommand->Instruction = ((LINEAR_BURST_READ*0x10 + 2)<<24) + buffer_info_axm.count-1;
+		//sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
+		//sCommand->NbData = buffer_info_axm.count;
+		//sCommand->Address = 0x12345678;
 
-		SCB_InvalidateDCache_by_Addr((uint32_t*)buffer_info_axm.buffer, buffer_info_axm.count);
-
-		if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
-		{
-		  Error_Handler();
-		}
-
-		if (HAL_OSPI_Receive_DMA(&hospi1, buffer_info_axm.buffer)!= HAL_OK)
-		{
-		  Error_Handler();
-		}
-
-		while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
-
-		while(tud_vendor_write(buffer_info_axm.buffer, buffer_info_axm.count) == 0) tud_task();
-		tud_vendor_flush();
+		//SCB_InvalidateDCache_by_Addr((uint32_t*)/*buffer_info_axm.*/buffer, buffer_info_axm.count);
 
 
-		buffer_info_axm.busy = false;
+
+
+		//buffer_info_axm.busy = false;
 	}
 }
 /* USER CODE END 0 */
@@ -178,9 +191,9 @@ int main(void)
   sCommand.OperationType = HAL_OSPI_OPTYPE_COMMON_CFG;
   sCommand.FlashId = HAL_OSPI_FLASH_ID_1;
   sCommand.InstructionMode = HAL_OSPI_INSTRUCTION_8_LINES;
-  sCommand.InstructionSize = HAL_OSPI_INSTRUCTION_16_BITS;
+  sCommand.InstructionSize = HAL_OSPI_INSTRUCTION_32_BITS;
   sCommand.AddressMode = HAL_OSPI_ADDRESS_8_LINES;
-  sCommand.AddressSize = HAL_OSPI_ADDRESS_24_BITS;
+  sCommand.AddressSize = HAL_OSPI_ADDRESS_32_BITS;
   sCommand.AlternateBytesMode = HAL_OSPI_ALTERNATE_BYTES_NONE;
   sCommand.DataMode = HAL_OSPI_DATA_8_LINES;
   sCommand.SIOOMode = HAL_OSPI_SIOO_INST_EVERY_CMD;
@@ -197,7 +210,7 @@ int main(void)
       //HAL_Delay(1);
 	  tud_task();
 	  from_host_task(&sCommand);
-	  pmod_task(&sCommand);
+	  //pmod_task(&sCommand);
   }
   /* USER CODE END 3 */
 }
@@ -289,7 +302,7 @@ static void MX_OCTOSPI1_Init(void)
   hospi1.Init.FifoThreshold = 1;
   hospi1.Init.DualQuad = HAL_OSPI_DUALQUAD_DISABLE;
   hospi1.Init.MemoryType = HAL_OSPI_MEMTYPE_APMEMORY;
-  hospi1.Init.DeviceSize = 24;
+  hospi1.Init.DeviceSize = 32;
   hospi1.Init.ChipSelectHighTime = 1;
   hospi1.Init.FreeRunningClock = HAL_OSPI_FREERUNCLK_DISABLE;
   hospi1.Init.ClockMode = HAL_OSPI_CLOCK_MODE_0;

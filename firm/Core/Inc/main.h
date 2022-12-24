@@ -59,12 +59,12 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 
 /* USER CODE BEGIN Private defines */
-#define LINEAR_BURST_READ 0x20
-#define LINEAR_BURST_WRITE 0xA0
+#define LINEAR_BURST_READ 0x2
+#define LINEAR_BURST_WRITE 0xA
 #define DUMMY_CLOCK_CYCLES_SRAM_READ 2
 #define DUMMY_CLOCK_CYCLES_SRAM_WRITE 0
 
-#define BUFFERSIZE 256
+#define BUFFERSIZE 512
 typedef uint8_t cmd_buffer[BUFFERSIZE];
 typedef struct buffer_info
 {

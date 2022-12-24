@@ -27,7 +27,6 @@
  * This file is part of the TinyUSB stack.
  */
 #if (0)
-
 #include "tusb_option.h"
 
 // Since TinyUSB doesn't use SOF for now, and this interrupt too often (1ms interval)
