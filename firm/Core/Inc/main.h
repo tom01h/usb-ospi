@@ -68,9 +68,9 @@ void Error_Handler(void);
 typedef uint8_t cmd_buffer[BUFFERSIZE];
 typedef struct buffer_info
 {
+  cmd_buffer buffer;
   volatile uint32_t count;
   volatile uint8_t busy;
-  cmd_buffer buffer;
 } buffer_info;
 
 /* USER CODE END Private defines */

@@ -4,7 +4,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#define BUFFERSIZE 256
+//#define BUFFERSIZE 1024
+#define BUFFERSIZE 512*512
+#define TRANSFERSIZE 256
 //#define BUFFERSIZE 64
 
 #include <libusb.h>
@@ -54,7 +56,7 @@ int read_dev(int size, u_int8_t *send_data, u_int8_t *receive_data) {
     int actual_length = 0;
 
     // read command 送信
-    r = libusb_bulk_transfer(dev_handle, PMODUSB_WRITE_EP, send_data, size , &actual_length, 1000);
+    r = libusb_bulk_transfer(dev_handle, PMODUSB_WRITE_EP, send_data, 8 , &actual_length, 1000);
     if ( r != 0 ){
         printf("write_dev error %d\n", r);
         device_close();
@@ -89,11 +91,13 @@ int write_dev(int size, u_int8_t *send_data) {
 int main(){
     unsigned int sec;
     int nsec;
-    double d_sec;
+    double rw_sec;
+    double r_sec;
     struct timespec start_time, end_time;
 
     u_int8_t aTxBuffer[8+BUFFERSIZE];  // command[4]+address[4]+data[BUFFERSIZE]
     u_int8_t aRxBuffer[BUFFERSIZE];    // data[BUFFERSIZE]
+    u_int8_t ResultBuffer[BUFFERSIZE]; // data[BUFFERSIZE]
 
     int microsecond = 1 * 1000 * 1000;
 
@@ -104,61 +108,117 @@ int main(){
 
     while(1){
         for(int i = 0; i < BUFFERSIZE; i++){
-            aTxBuffer[8+i] = rand();
+            ResultBuffer[i] = rand();
+            //aTxBuffer[8+i]  = ResultBuffer[i];
         }
 
         clock_gettime(CLOCK_REALTIME, &start_time);
 
+        uint32_t address = 0;
+
         int actual_length = 0;
 
-        aTxBuffer[0] =  (BUFFERSIZE-1)%0x100;
-        aTxBuffer[1] = ((BUFFERSIZE-1)/0x100)%0x100;
-        aTxBuffer[2] = ((BUFFERSIZE-1)/0x100)/0x100;
-        aTxBuffer[3] = 0xA2;
-        aTxBuffer[4] = 0x78;
-        aTxBuffer[5] = 0x56;
-        aTxBuffer[6] = 0x34;
-        aTxBuffer[7] = 0x00;
-        actual_length = write_dev(8+BUFFERSIZE, aTxBuffer);
-        if(actual_length < 0){
-            printf("write error\n");    
-            return -1;
+        address = 0;//0x12345678;
+
+        for (int i=0; i < BUFFERSIZE/TRANSFERSIZE; i++) {
+            actual_length = 0;
+
+            aTxBuffer[0] =  (TRANSFERSIZE-1)         %0x100;
+            aTxBuffer[1] = ((TRANSFERSIZE-1)/0x100)  %0x100;
+            aTxBuffer[2] = ((TRANSFERSIZE-1)/0x10000);
+            aTxBuffer[3] = 0xA0+4;
+            aTxBuffer[4] =  address           %0x100;
+            aTxBuffer[5] = (address/0x100)    %0x100;
+            aTxBuffer[6] = (address/0x10000)  %0x100;
+            aTxBuffer[7] = (address/0x1000000);
+            for(int j = 0; j < TRANSFERSIZE; j++){
+                aTxBuffer[8+j]  = ResultBuffer[i*TRANSFERSIZE+j];
+            }
+            actual_length = write_dev(8+TRANSFERSIZE, aTxBuffer);
+
+            if(actual_length < 0){
+                printf("write error\n");
+                return -1;
+            }
+            address += TRANSFERSIZE;
         }
 
-        actual_length = 0;
 
-        aTxBuffer[0] =  (BUFFERSIZE-1)%0x100;
-        aTxBuffer[1] = ((BUFFERSIZE-1)/0x100)%0x100;
-        aTxBuffer[2] = ((BUFFERSIZE-1)/0x100)/0x100;
-        aTxBuffer[3] = 0x22;
-        aTxBuffer[4] = 0x78;
-        aTxBuffer[5] = 0x56;
-        aTxBuffer[6] = 0x34;
-        aTxBuffer[7] = 0x12;
+        address = 0;//0x12345678;
+
+        actual_length = 0;
+        aTxBuffer[0] =  (BUFFERSIZE-1)         %0x100;
+        aTxBuffer[1] = ((BUFFERSIZE-1)/0x100)  %0x100;
+        aTxBuffer[2] = ((BUFFERSIZE-1)/0x10000);
+        aTxBuffer[3] = 0x20+4;
+        aTxBuffer[4] =  address           %0x100;
+        aTxBuffer[5] = (address/0x100)    %0x100;
+        aTxBuffer[6] = (address/0x10000)  %0x100;
+        aTxBuffer[7] = (address/0x1000000);
         actual_length = read_dev(BUFFERSIZE, aTxBuffer, aRxBuffer);
         if(actual_length < 0){
             printf("read error\n");    
             return -1;
         }
-
+        
         clock_gettime(CLOCK_REALTIME, &end_time);
         sec = end_time.tv_sec - start_time.tv_sec;
         nsec = end_time.tv_nsec - start_time.tv_nsec;
-        d_sec = (double)sec + (double)nsec / (1000 * 1000 * 1000);
-        printf("time:%f, %f Mpbs\n", d_sec, BUFFERSIZE*8*2*1/d_sec/1000/1000);
+        rw_sec = (double)sec + (double)nsec / (1000 * 1000 * 1000);
+        printf("R/W time:%f, %f Mpbs\n", rw_sec, BUFFERSIZE*8*2*1/rw_sec/1000/1000);
 
         for(int i = 0; i < BUFFERSIZE/16; i++){
             for(int j = 0; j < 16; j++){
-                if(aTxBuffer[8+i*16+j] != aRxBuffer[i*16+j]){
-                    printf("Error %i, %02x, %02x ", i*16+j, aTxBuffer[i*16+j], aRxBuffer[i*16+j]);
+                if(ResultBuffer[i*16+j] != aRxBuffer[i*16+j]){
+                    printf("Error %i, %02x, %02x ", i*16+j, ResultBuffer[i*16+j], aRxBuffer[i*16+j]);
                 } else {
-                    printf("%02x ",aTxBuffer[i*16+j]);
+                    //printf("%02x ",ResultBuffer[i*16+j]);
                 }
             }
-            printf("\n");
+            //printf("\n");
+        }
+        //printf("\n");
+      
+        /////////////// READ /////////////////
+        
+        address = 0;//0x12345678;
+        
+        clock_gettime(CLOCK_REALTIME, &start_time);
+
+        actual_length = 0;
+        aTxBuffer[0] =  (BUFFERSIZE-1)         %0x100;
+        aTxBuffer[1] = ((BUFFERSIZE-1)/0x100)  %0x100;
+        aTxBuffer[2] = ((BUFFERSIZE-1)/0x10000);
+        aTxBuffer[3] = 0x20+4;
+        aTxBuffer[4] =  address           %0x100;
+        aTxBuffer[5] = (address/0x100)    %0x100;
+        aTxBuffer[6] = (address/0x10000)  %0x100;
+        aTxBuffer[7] = (address/0x1000000);
+        actual_length = read_dev(BUFFERSIZE, aTxBuffer, aRxBuffer);
+        if(actual_length < 0){
+            printf("read error\n");    
+            return -1;
+        }
+        
+        clock_gettime(CLOCK_REALTIME, &end_time);
+        sec = end_time.tv_sec - start_time.tv_sec;
+        nsec = end_time.tv_nsec - start_time.tv_nsec;
+        r_sec = (double)sec + (double)nsec / (1000 * 1000 * 1000);
+        printf("R time:%f, %f Mpbs\n", r_sec, BUFFERSIZE*8/r_sec/1000/1000);
+        printf("W time:%f, %f Mpbs\n", rw_sec-r_sec, BUFFERSIZE*8/(rw_sec-r_sec)/1000/1000);
+
+        for(int i = 0; i < BUFFERSIZE/16; i++){
+            for(int j = 0; j < 16; j++){
+                if(ResultBuffer[i*16+j] != aRxBuffer[i*16+j]){
+                    printf("Error %i, %02x, %02x ", i*16+j, ResultBuffer[i*16+j], aRxBuffer[i*16+j]);
+                } else {
+                    //printf("%02x ",ResultBuffer[i*16+j]);
+                }
+            }
+            //printf("\n");
         }
         printf("\n");
-      
+
         usleep(microsecond);
 
     }

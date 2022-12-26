@@ -12,7 +12,7 @@ wire dqs_o;
 wire dqs_t;
 wire [7:0] data_i;
 reg [7:0] data_o;
-wire data_t;
+(* mark_debug = "true" *) reg data_t;
 
 IOBUF dqs_io (.IO(dqs), .O(dqs_i), .I(dqs_o), .T(dqs_t));
 IOBUF dqs_d0 (.IO(data[0]), .O(data_i[0]), .I(data_o[0]), .T(data_t));
@@ -84,21 +84,18 @@ end
 wire write;
 wire read;
 wire dummy;
-(* mark_debug = "true" *) reg hold_state;
 assign write = (cmd_cnt == CMD_LEN) && (cmd == COMMAND_WRITE);
 assign read = (cmd_cnt == CMD_LEN) && (dmy_cnt == DMY_LEN) && (cmd == COMMAND_READ);
 assign dummy = (cmd_cnt == CMD_LEN) && (dmy_cnt != DMY_LEN) && (cmd == COMMAND_READ);
 
-assign dqs_t = ~(read || dummy || hold_state);
-//assign dqs_o = (read) & data_cnt[0];
-assign dqs_o = ~clk;
-assign data_t = ~(read || hold_state);
+assign dqs_t = ~(1'b0);//read || dummy || hold_state);
+assign dqs_o = 1'b0;//~clk;
 
 always @(posedge clk or posedge ncs) begin
     if(ncs) begin
-        hold_state <= 1'b0;
+        data_t <= 1'b1;
     end else if(dummy) begin
-        hold_state <= 1'b1;
+        data_t <= 1'b0;
     end    
 end
 
@@ -110,7 +107,12 @@ always @(posedge clk) begin
     end
     data_o <= ram[address];
 end
-    
+
+(* mark_debug = "true" *) reg [7:0] data_d;
+always @(posedge clk) begin
+    data_d <= data_o;
+end
+
 always @(posedge clk) begin
     if(reset) begin
         ledout <= 2'b0;
