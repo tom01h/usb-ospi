@@ -70,24 +70,25 @@ void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 		buffer_info_axm.busy = true;
 		uint com_size = 0;
 		if (tud_vendor_available()) {
-			com_size = tud_vendor_read(buffer_info_axm.buffer, 512);
+			com_size = tud_vendor_read(buffer_info_axm.buffer[0], 512);
 			tud_vendor_read_flush();
 		}else{
 			tud_task();
 		}
 		if (com_size != 0) {
-			sCommand->Instruction = *(uint32_t *)&buffer_info_axm.buffer[0];
+			sCommand->Instruction = *(uint32_t *)&buffer_info_axm.buffer[0][0];
 			buffer_info_axm.count = (sCommand->Instruction & 0x00ffffff)+1;
 
-			sCommand->Address     = *(uint32_t *)&buffer_info_axm.buffer[4];
+			sCommand->Address     = *(uint32_t *)&buffer_info_axm.buffer[0][4];
 
 			uint count = buffer_info_axm.count;
 
-			if((buffer_info_axm.buffer[3]&0xf0)==(LINEAR_BURST_WRITE<<4)) {     // LINEAR_BURST_WRITE
+			if((buffer_info_axm.buffer[0][3]&0xf0)==(LINEAR_BURST_WRITE<<4)) {     // LINEAR_BURST_WRITE
 				sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_WRITE;
+				int wp = 0;
+				int rp = 0;
+				while(tud_vendor_read(buffer_info_axm.buffer[wp], 512) == 0){tud_task();}
 				do{
-					while(tud_vendor_read(buffer_info_axm.buffer, 512) == 0){tud_task();}
-
 					if(count > 256){
 						sCommand->NbData  = 256;
 						count -= 256;
@@ -97,10 +98,10 @@ void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 						count = 0;
 						sCommand->Instruction &= 0xff0000ff;
 					}
-					SCB_CleanDCache_by_Addr((uint32_t*)buffer_info_axm.buffer, 512);
+					SCB_CleanDCache_by_Addr((uint32_t*)buffer_info_axm.buffer[rp], 512);
 
 					if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK) {Error_Handler();}
-					if (HAL_OSPI_Transmit_DMA(&hospi1, buffer_info_axm.buffer)!= HAL_OK)               {Error_Handler();}
+					if (HAL_OSPI_Transmit_DMA(&hospi1, buffer_info_axm.buffer[rp])!= HAL_OK)           {Error_Handler();}
 					while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
 					sCommand->Address += 256;
 
@@ -114,18 +115,24 @@ void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 							count = 0;
 							sCommand->Instruction &= 0xff0000ff;
 						}
-						SCB_CleanDCache_by_Addr((uint32_t*)buffer_info_axm.buffer, 512);
 
 						if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK) {Error_Handler();}
-						if (HAL_OSPI_Transmit_DMA(&hospi1, &buffer_info_axm.buffer[256])!= HAL_OK)         {Error_Handler();}
+						if (HAL_OSPI_Transmit_DMA(&hospi1, &buffer_info_axm.buffer[rp][256])!= HAL_OK)     {Error_Handler();}
+						if(count > 0) {
+							wp = (wp +1) %2;
+							while(tud_vendor_read(buffer_info_axm.buffer[wp], 512) == 0){tud_task();}
+						}
 						while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_TX){}
 						sCommand->Address += 256;
 					}
+					rp = (rp +1) %2;
 				} while(count > 0);
 			} else {                                                             // LINEAR_BURST_READ
 				sCommand->DummyCycles = DUMMY_CLOCK_CYCLES_SRAM_READ;
+				int wp = 0;
+				int rp = 0;
 				do{
-					SCB_InvalidateDCache_by_Addr((uint32_t*)buffer_info_axm.buffer, 512);
+					SCB_InvalidateDCache_by_Addr((uint32_t*)buffer_info_axm.buffer[wp], 512);
 
 					if(count > 256){
 						sCommand->NbData  = 256;
@@ -138,7 +145,11 @@ void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 					}
 
 					if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK) {Error_Handler();}
-					if (HAL_OSPI_Receive_DMA(&hospi1, buffer_info_axm.buffer)!= HAL_OK)                {Error_Handler();}
+					if (HAL_OSPI_Receive_DMA(&hospi1, buffer_info_axm.buffer[wp])!= HAL_OK)            {Error_Handler();}
+					if(rp != wp) {
+						while(tud_vendor_write(buffer_info_axm.buffer[rp], 512) == 0){tud_task();}///////////////////////////////512
+						rp = (rp +1) %2;
+					}
 					while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
 					sCommand->Address += 256;
 
@@ -154,14 +165,15 @@ void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 						}
 
 						if (HAL_OSPI_Command(&hospi1, sCommand, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK) {Error_Handler();}
-						if (HAL_OSPI_Receive_DMA(&hospi1, &buffer_info_axm.buffer[256])!= HAL_OK)          {Error_Handler();}
+						if (HAL_OSPI_Receive_DMA(&hospi1, &buffer_info_axm.buffer[wp][256])!= HAL_OK)      {Error_Handler();}
 						while(HAL_OSPI_GetState(&hospi1) == HAL_OSPI_STATE_BUSY_RX){}
 						sCommand->Address += 256;
 					}
 
-					while(tud_vendor_write(buffer_info_axm.buffer, 512) == 0){tud_task();}///////////////////////////////512
+					wp = (wp +1) %2;
 					tud_vendor_flush();
 				} while(count > 0);
+				while(tud_vendor_write(buffer_info_axm.buffer[rp], 512) == 0){tud_task();}///////////////////////////////512
 			}
 		}
 		buffer_info_axm.busy = false;
