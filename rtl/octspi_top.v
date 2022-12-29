@@ -10,19 +10,20 @@ module octspi_top(
 wire dqs_i;
 wire dqs_o;
 wire dqs_t;
-wire [7:0] data_i;
+(* mark_debug = "true" *) wire [7:0] data_i;
 reg [7:0] data_o;
+(* mark_debug = "true" *) reg [7:0] data_d;
 (* mark_debug = "true" *) reg data_t;
 
 IOBUF dqs_io (.IO(dqs), .O(dqs_i), .I(dqs_o), .T(dqs_t));
-IOBUF dqs_d0 (.IO(data[0]), .O(data_i[0]), .I(data_o[0]), .T(data_t));
-IOBUF dqs_d1 (.IO(data[1]), .O(data_i[1]), .I(data_o[1]), .T(data_t));
-IOBUF dqs_d2 (.IO(data[2]), .O(data_i[2]), .I(data_o[2]), .T(data_t));
-IOBUF dqs_d3 (.IO(data[3]), .O(data_i[3]), .I(data_o[3]), .T(data_t));
-IOBUF dqs_d4 (.IO(data[4]), .O(data_i[4]), .I(data_o[4]), .T(data_t));
-IOBUF dqs_d5 (.IO(data[5]), .O(data_i[5]), .I(data_o[5]), .T(data_t));
-IOBUF dqs_d6 (.IO(data[6]), .O(data_i[6]), .I(data_o[6]), .T(data_t));
-IOBUF dqs_d7 (.IO(data[7]), .O(data_i[7]), .I(data_o[7]), .T(data_t));
+IOBUF dqs_d0 (.IO(data[0]), .O(data_i[0]), .I(data_d[0]), .T(data_t));
+IOBUF dqs_d1 (.IO(data[1]), .O(data_i[1]), .I(data_d[1]), .T(data_t));
+IOBUF dqs_d2 (.IO(data[2]), .O(data_i[2]), .I(data_d[2]), .T(data_t));
+IOBUF dqs_d3 (.IO(data[3]), .O(data_i[3]), .I(data_d[3]), .T(data_t));
+IOBUF dqs_d4 (.IO(data[4]), .O(data_i[4]), .I(data_d[4]), .T(data_t));
+IOBUF dqs_d5 (.IO(data[5]), .O(data_i[5]), .I(data_d[5]), .T(data_t));
+IOBUF dqs_d6 (.IO(data[6]), .O(data_i[6]), .I(data_d[6]), .T(data_t));
+IOBUF dqs_d7 (.IO(data[7]), .O(data_i[7]), .I(data_d[7]), .T(data_t));
 
 
 
@@ -71,6 +72,7 @@ always @(posedge clk) begin
         endcase
     end else if((dmy_cnt != DMY_LEN) && (cmd == COMMAND_READ)) begin
         dmy_cnt <= dmy_cnt + 1;
+        if(dmy_cnt == DMY_LEN-1) address <= address + 1;
     end else if((data_cnt != len) && (cmd == COMMAND_READ) || (data_cnt != len) && (cmd == COMMAND_WRITE)) begin
         data_cnt <= data_cnt + 1;
         address <= address + 1;
@@ -108,7 +110,6 @@ always @(posedge clk) begin
     data_o <= ram[address];
 end
 
-(* mark_debug = "true" *) reg [7:0] data_d;
 always @(posedge clk) begin
     data_d <= data_o;
 end

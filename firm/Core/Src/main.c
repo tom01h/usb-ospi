@@ -71,7 +71,7 @@ void from_host_task(OSPI_RegularCmdTypeDef *sCommand)
 		uint com_size = 0;
 		if (tud_vendor_available()) {
 			com_size = tud_vendor_read(buffer_info_axm.buffer[0], 512);
-			tud_vendor_read_flush();
+			//tud_vendor_read_flush();
 		}else{
 			tud_task();
 		}
@@ -350,7 +350,7 @@ static void MX_OCTOSPI1_Init(void)
   hospi1.Init.SampleShifting = HAL_OSPI_SAMPLE_SHIFTING_HALFCYCLE;
   hospi1.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_DISABLE;
   hospi1.Init.ChipSelectBoundary = 0;
-  hospi1.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
+  hospi1.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_USED;
   hospi1.Init.MaxTran = 0;
   hospi1.Init.Refresh = 0;
   if (HAL_OSPI_Init(&hospi1) != HAL_OK)
