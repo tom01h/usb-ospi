@@ -13,7 +13,7 @@ OCTO SPIはSTM32はHALを使って、FPGAは適当に作ったRTLを使います
 ## 部品
 - PCはLinuxPCならたぶん何でもよい
 - 基板を1枚こしらえました（[スケマ](https://github.com/tom01h/usb-ospi/blob/master/PCB/QMTECH/ospi.pdf)）
-    - この基板の動作確認はまだ
+    - この基板の動作確認は200Tのみ
     - [8ピンのデータ用type-Cコネクタ](https://ja.aliexpress.com/item/1005004277420642.html)
     - [6ピンの電源用type-Cコネクタ](https://ja.aliexpress.com/item/1005004384274891.html)
     - USB3300-EZK

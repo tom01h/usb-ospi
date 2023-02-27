@@ -5971,7 +5971,7 @@
     (uuid ae45b09c-78e3-44d1-9f74-a1c80ff1dd73)
     (property "Reference" "U1" (id 0) (at 168.275 44.2212 90))
     (property "Value" "USB3300-EZK" (id 1) (at 168.275 46.7612 90))
-    (property "Footprint" "Package_DFN_QFN:QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm" (id 2) (at 169.545 86.36 0)
+    (property "Footprint" "My:QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm_ThermalVias" (id 2) (at 169.545 86.36 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "http://ww1.microchip.com/downloads/en/DeviceDoc/00001783C.pdf" (id 3) (at 201.295 53.34 0)
@@ -6903,7 +6903,7 @@
       (reference "SW1") (unit 1) (value "SW_Push") (footprint "Button_Switch_SMD:SW_SPST_CK_RS282G05A3")
     )
     (path "/ae45b09c-78e3-44d1-9f74-a1c80ff1dd73"
-      (reference "U1") (unit 1) (value "USB3300-EZK") (footprint "Package_DFN_QFN:QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm")
+      (reference "U1") (unit 1) (value "USB3300-EZK") (footprint "My:QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm_ThermalVias")
     )
     (path "/5b82de44-5dfc-40a7-a488-13883d03244c"
       (reference "Y1") (unit 1) (value "Crystal_GND24") (footprint "Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm_HandSoldering")
